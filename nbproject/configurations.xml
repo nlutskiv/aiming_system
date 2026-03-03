@@ -20,8 +20,12 @@
       <itemPath>config.s</itemPath>
       <itemPath>main.s</itemPath>
       <itemPath>DAC_Interrupt.s</itemPath>
+      <itemPath>../../mplab/micro_copy/ADC.s</itemPath>
     </logicalFolder>
   </logicalFolder>
+  <sourceRootList>
+    <Elem>../../mplab/micro_copy</Elem>
+  </sourceRootList>
   <projectmakefile>Makefile</projectmakefile>
   <confs>
     <conf name="default" type="2">
