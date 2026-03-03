@@ -5,22 +5,22 @@ extrn   pre_hi_h, pre_hi_l, pre_lo_h, pre_lo_l   ; from PWM module
 
 ; tick = 0.5us (Fosc=64MHz, Fosc/4=16MHz, prescale=8 => 2MHz tick)
 ; 1.0ms => 2000 ticks
-; 2.0ms => 4000 ticks
+; 3.0ms => 6000 ticks
 ; 20ms  => 40000 ticks
 
 psect   udata_acs
 a0:     ds 1        ; ADRESL
 a1:     ds 1        ; ADRESH & 0x0F  (top 4 bits of 12-bit result)
-p0:     ds 1        ; 24-bit product p2:p1:p0 = adc12 * 2000
+p0:     ds 1        ; 24-bit product p2:p1:p0 = adc12 * 4000
 p1:     ds 1
 p2:     ds 1
 sh0:    ds 1        ; shifted product (>>12)
 sh1:    ds 1
 sh2:    ds 1
 cnt:    ds 1
-sc_l:   ds 1        ; scaled 0..2000 (16-bit)
+sc_l:   ds 1        ; scaled 0..4000 (16-bit)
 sc_h:   ds 1
-ht_l:   ds 1        ; high_ticks 2000..4000 (16-bit)
+ht_l:   ds 1        ; high_ticks 2000..6000 (16-bit)
 ht_h:   ds 1
 
 psect   adc_map_code, class=CODE
@@ -28,7 +28,7 @@ psect   adc_map_code, class=CODE
 ; ------------------------------------------------------------
 ; ADC_To_Preloads_12bit
 ; Uses 12-bit ADC (0..0x0FFF). Output:
-;   HIGH pulse: 1.000ms..2.000ms exactly over full ADC range
+;   HIGH pulse: 1.000ms..3.000ms over full ADC range
 ; ------------------------------------------------------------
 ADC_To_Preloads_12bit:
 
@@ -40,36 +40,36 @@ ADC_To_Preloads_12bit:
         andlw   0x0F
         movwf   a1, A
 
-        ; p = adc12 * 2000 (0x07D0), into p2:p1:p0
-        ; adc12 = a1*256 + a0
-        ; p = a0*0xD0 + (a0*0x07)<<8 + (a1*0xD0)<<8 + (a1*0x07)<<16
+        ; p = adc12 * 4000 (0x0FA0), into p2:p1:p0
+        ; 0x0FA0 => m1=0x0F, m0=0xA0
+        ; p = a0*0xA0 + (a0*0x0F)<<8 + (a1*0xA0)<<8 + (a1*0x0F)<<16
 
-        movlw   0xD0
+        movlw   0xA0
         mulwf   a0, A
         movff   PRODL, p0
         movff   PRODH, p1
         clrf    p2, A
 
-        movlw   0x07
+        movlw   0x0F
         mulwf   a0, A
         movf    PRODL, W, A
         addwf   p1, F, A
         movf    PRODH, W, A
         addwfc  p2, F, A
 
-        movlw   0xD0
+        movlw   0xA0
         mulwf   a1, A
         movf    PRODL, W, A
         addwf   p1, F, A
         movf    PRODH, W, A
         addwfc  p2, F, A
 
-        movlw   0x07
+        movlw   0x0F
         mulwf   a1, A
         movf    PRODL, W, A
         addwf   p2, F, A
 
-        ; scaled = (p >> 12)  ~ (adc12 * 2000)/4096
+        ; scaled = (p >> 12)  ~ (adc12 * 4000)/4096
         movff   p0, sh0
         movff   p1, sh1
         movff   p2, sh2
@@ -84,16 +84,16 @@ s12:    rrcf    sh2, F, A
         movff   sh0, sc_l
         movff   sh1, sc_h
 
-        ; endpoint fix: if adc12 == 0x0FFF => scaled = 2000 exactly (0x07D0)
+        ; endpoint fix: if adc12 == 0x0FFF => scaled = 4000 exactly (0x0FA0)
         movf    a1, W, A
         xorlw   0x0F
         bnz     not_max
         movf    a0, W, A
         xorlw   0xFF
         bnz     not_max
-        movlw   0xD0
+        movlw   0xA0
         movwf   sc_l, A
-        movlw   0x07
+        movlw   0x0F
         movwf   sc_h, A
 not_max:
 
