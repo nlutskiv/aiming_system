@@ -21,10 +21,13 @@
       <itemPath>main.s</itemPath>
       <itemPath>DAC_Interrupt.s</itemPath>
       <itemPath>../../mplab/micro_copy/ADC.s</itemPath>
+      <itemPath>UART.s</itemPath>
+      <itemPath>ADC_To_Preload.s</itemPath>
     </logicalFolder>
   </logicalFolder>
   <sourceRootList>
     <Elem>../../mplab/micro_copy</Elem>
+    <Elem>.</Elem>
   </sourceRootList>
   <projectmakefile>Makefile</projectmakefile>
   <confs>
@@ -34,7 +37,7 @@
         <targetDevice>PIC18F87K22</targetDevice>
         <targetHeader></targetHeader>
         <targetPluginBoard></targetPluginBoard>
-        <platformTool>noID</platformTool>
+        <platformTool>pk4hybrid</platformTool>
         <languageToolchain>pic-as</languageToolchain>
         <languageToolchainVersion>3.10</languageToolchainVersion>
         <platform>3</platform>
