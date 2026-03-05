@@ -20,12 +20,16 @@ int_hi: org     0x0008
 start:
         call    PWM_Setup
 	call	ADC_Setup  
+	; delay if does not work
+	bsf     TRISB, 0, A          ; RB0 input
+        bcf     INTCON2, 7, A        ; enable PORTB pull-ups (RBPU=0)
 
         clrf    mode, A        ; default MANUAL (0)
 
 main_loop:
-        movf    mode, W, A
-        bnz     auto_mode      ; if mode != 0 -> AUTO
+        btfss   PORTB, 0, A          ; if RB0==0 -> AUTO
+        bra     auto_mode
+        bra     manual_mode
 
 manual_mode:
         call    ADC_Read       ; updates ADRESH:ADRESL (AN0 as currently set)
@@ -36,6 +40,18 @@ manual_mode:
 
 auto_mode:
         ; TODO: UART read/parse later
-        goto    main_loop
+        ; force servo to centre (~1.5ms high) while in AUTO
+        bcf     GIE
 
-        end     rst
+        movlw   0xF4
+        movwf   pre_hi_h, A
+        movlw   0x48
+        movwf   pre_hi_l, A
+
+        movlw   0x6F
+        movwf   pre_lo_h, A
+        movlw   0x78
+        movwf   pre_lo_l, A
+
+        bsf     GIE
+        goto    main_loop
