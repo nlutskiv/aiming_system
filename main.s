@@ -80,7 +80,7 @@ wait_55:
     call    Wait_And_Read
     movwf   temp_lo_l, A
 
-    ; NOW copy all at once (Atomic-ish)
+    ; NOW copy all at once
     bcf     INTCON, 7, A     ; Disable Global Interrupts (GIE is bit 7)
     movff   temp_hi_h, pre_hi_h
     movff   temp_hi_l, pre_hi_l

@@ -23,7 +23,7 @@ def main():
     US_PER_DEGREE = 11.11 
 
     # --- TRACKING CONFIG ---
-    K_P = 0.11            
+    K_P = 0.3      
     MIN_STEP = 2          # Prevents asymptotic stall
     lock_threshold = 12    # Position window
     velocity_threshold = 2 # Speed window (px per frame)
