@@ -3,18 +3,19 @@
 extrn   PWM_Setup, PWM_Int_Hi
 extrn   ADC_Read
 extrn   pre_hi_h, pre_hi_l, pre_lo_h, pre_lo_l
-extrn	ADC_Setup
-extrn	ADC_To_Preloads_12bit
-extrn	UART_Read_Byte, UART_Setup
+extrn   ADC_Setup
+extrn   ADC_To_Preloads_12bit
+extrn   UART_Read_Byte, UART_Setup, UART_Transmit_Byte
 
 psect   udata_acs
-rx_state:  ds 1      ; 0=waitAA, 1=wait55, 2=data
-rx_idx:    ds 1      ; 0..3
+rx_state:  ds 1      
+rx_idx:    ds 1      
 temp_hi_h: ds 1
 temp_hi_l: ds 1
 temp_lo_h: ds 1
 temp_lo_l: ds 1
-mode:   ds 1            ; 0 = MANUAL, 1 = AUTO
+mode:      ds 1      
+last_mode: ds 1      ; NEW: To detect the flip
 
 psect   code, abs
 
@@ -25,54 +26,62 @@ int_hi: org     0x0008
         goto    PWM_Int_Hi
 
 start:
-	bcf TRISJ,0,A ;useless
-	clrf rx_state, A
-	clrf rx_idx, A
-        call    PWM_Setup
-	call	ADC_Setup  
-	call	UART_Setup
-	; delay if does not work
-	bsf     TRISB, 0, A          ; RB0 input
-        bcf     INTCON2, 7, A        ; enable PORTB pull-ups (RBPU=0)
-
-        clrf    mode, A        ; default MANUAL (0)
+    bcf TRISJ,0,A 
+    clrf rx_state, A
+    clrf rx_idx, A
+    call    PWM_Setup
+    call    ADC_Setup  
+    call    UART_Setup
+    bsf     TRISB, 0, A          
+    bcf     INTCON2, 7, A        
+    clrf    mode, A        
+    clrf    last_mode, A     ; Start in manual
 
 main_loop:
-        btfss   PORTB, 0, A          ; if RB0==0 -> AUTO
-        bra     auto_mode
-        bra     manual_mode
+    btfss   PORTB, 0, A          
+    bra     auto_mode
+    bra     manual_mode
 
 manual_mode:
-        call    ADC_Read       ; updates ADRESH:ADRESL (AN0 as currently set)
-	
-	call    ADC_To_Preloads_12bit
-
-        goto    main_loop
-
-auto_mode:
-    ; 1. Check if a byte is even there. If not, go back to main loop
-    btfss   PIR1, 5, A            
+    clrf    last_mode, A     ; Keep last_mode 0 while in manual
+    call    ADC_Read       
+    call    ADC_To_Preloads_12bit
     goto    main_loop
 
-    ; 2. Look for Header 0xAA
+auto_mode:
+    ; --- THE SYNC TRIGGER (Minimal Change) ---
+    movf    last_mode, W, A
+    bnz     skip_sync        ; If last_mode was already 1, we already synced.
+    
+    ; Send sync packet ONCE
+    movlw   0xAA
+    call    UART_Transmit_Byte
+    movf    pre_hi_h, W, A
+    call    UART_Transmit_Byte
+    movf    pre_hi_l, W, A
+    call    UART_Transmit_Byte
+    
+    movlw   1
+    movwf   last_mode, A     ; Mark that sync is DONE
+    ; -----------------------------------------
+
+skip_sync:
+    btfss   PIR1, 5, A       ; Now check if Python is sending data
+    goto    main_loop
+
     call    UART_Read_Byte
     xorlw   0xAA
-    bnz     main_loop             ; Not our header? Exit and try again
+    bnz     main_loop         
 
 wait_55:
-    ; 3. Wait (block briefly) for the 0x55. 
-    ; Using a "Wait" instead of "Exit" ensures we don't lose sync.
     btfss   PIR1, 5, A
-    bra     wait_55               
+    bra     wait_55                
     call    UART_Read_Byte
     xorlw   0x55
-    bnz     main_loop             ; If 2nd byte isn't 0x55, packet is corrupt
+    bnz     main_loop              
 
-    ; 4. Collect the 4 data bytes. 
-    ; Once we have 0xAA 0x55, we MUST read the next 4 bytes.
-    
     call    Wait_And_Read
-    movwf   temp_hi_h, A     ; Save to temp
+    movwf   temp_hi_h, A     
     call    Wait_And_Read
     movwf   temp_hi_l, A
     call    Wait_And_Read
@@ -80,16 +89,14 @@ wait_55:
     call    Wait_And_Read
     movwf   temp_lo_l, A
 
-    ; NOW copy all at once
-    bcf     INTCON, 7, A     ; Disable Global Interrupts (GIE is bit 7)
+    bcf     INTCON, 7, A     
     movff   temp_hi_h, pre_hi_h
     movff   temp_hi_l, pre_hi_l
     movff   temp_lo_h, pre_lo_h
     movff   temp_lo_l, pre_lo_l
-    bsf     INTCON, 7, A     ; Re-enable Global Interrupts
+    bsf     INTCON, 7, A     
     goto    main_loop
 
-; Helper to avoid code duplication
 Wait_And_Read:
     btfss   PIR1, 5, A
     bra     Wait_And_Read

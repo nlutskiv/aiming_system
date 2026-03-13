@@ -10,23 +10,28 @@ def clamp(x, lo, hi):
 def main():
     PORT = "COM4"
     BAUD = 9600
-    US_MIN, US_MAX, US_CENTER = 1000, 3000, 1500
-    US_PER_DEGREE = 11.11 
-    PX_PER_DEGREE = 10.67 
-
-    # --- ADVANCED NON-LINEAR CONFIG ---
-    K_P = 0.15            
-    K_V = 0.4             # Slightly lowered to help stability
-    LEAD_MAX = 6.0        # Predictive look-ahead (frames)
-    VEL_DEADBAND = 2.5    # Ignore movement noise below this pixel threshold
-    LPF_ALPHA = 0.35      # 0.35 = 35% new data, 65% old. Smooths out sensor noise.
+    US_CENTER = 2200 # Kept your center
     
-    current_pan_us = US_CENTER
-    last_send_time = 0
-    last_error = 0
-    smooth_vel = 0        # Filtered velocity memory
+    # --- CALIBRATION ---
+    PX_PER_US = 1
 
-    # --- RMS STUDY ---
+    # --- HYPERPARAMETERS (UNCHANGED) ---
+    ALPHA = 0.2      
+    BETA  = 0.15      
+    LEAD_FACTOR = 2.0 
+
+    K_P = 0.12        
+    K_V = 0.30        
+
+    # State variables
+    est_pos = 0.0
+    est_vel = 0.0
+    last_error = 0.0
+    current_pan_us = US_CENTER
+    last_sent_us = US_CENTER
+    last_send_time = 0
+
+    # --- RMS STUDY VARIABLES ---
     is_studying = False
     study_start_time = 0
     study_duration = 10.0
@@ -37,7 +42,8 @@ def main():
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not cap.isOpened(): return
 
-    print("--- NON-LINEAR PREDICTIVE TRACKER ACTIVE ---")
+    print("--- EGO-COMPENSATED PREDICTOR ACTIVE ---")
+    print("Press 'S' to start 10s RMS Study")
 
     while True:
         ret, frame = cap.read()
@@ -45,71 +51,75 @@ def main():
 
         h, w = frame.shape[:2]
         center_x = w // 2
-        target_x, mask = find_red_target_x(frame)
+        target_x, _ = find_red_target_x(frame)
 
         if target_x is not None:
-            error = target_x - center_x
+            raw_error = target_x - center_x
             
-            # 1. LOW-PASS FILTERED VELOCITY
-            # This kills the "twitch" by smoothing out frame-to-frame noise
-            raw_vel = error - last_error
-            smooth_vel = (LPF_ALPHA * raw_vel) + ((1.0 - LPF_ALPHA) * smooth_vel)
-            last_error = error
+            # 1. EGO-MOTION COMPENSATION
+            camera_induced_motion = (current_pan_us - last_sent_us) * PX_PER_US
             
-            # 2. DYNAMIC LEAD (NON-LINEAR)
-            # Only predict if the target is actually moving with intent
-            if abs(smooth_vel) > VEL_DEADBAND:
-                predicted_error = error + (smooth_vel * LEAD_MAX)
-            else:
-                predicted_error = error # Stationary = no prediction
+            # 2. CALCULATE 'TRUE' TARGET VELOCITY
+            apparent_vel = raw_error - last_error
+            true_vel = apparent_vel + camera_induced_motion
+            
+            # 3. ALPHA-BETA FILTER
+            residual = raw_error - est_pos
+            est_pos = est_pos + (ALPHA * residual)
+            est_vel = (BETA * true_vel) + ((1 - BETA) * est_vel)
+            
+            # 4. PREDICTION
+            predicted_error = est_pos + (est_vel * LEAD_FACTOR)
 
-            # --- RMS DATA COLLECTION ---
+            # 5. RMS DATA COLLECTION
             if is_studying:
-                error_squared_sum += error**2
+                error_squared_sum += raw_error**2
                 sample_count += 1
+                # Check if 10 seconds have passed
                 if (time.time() - study_start_time) >= study_duration:
                     if sample_count > 0:
                         rms_px = math.sqrt(error_squared_sum / sample_count)
-                        print(f"\n--- STUDY COMPLETE ---")
-                        print(f"RMS: {rms_px:.2f} px | Lead Used: {LEAD_MAX}")
+                        print(f"\n--- RMS STUDY COMPLETE ---")
+                        print(f"Final RMS Error: {rms_px:.2f} px")
                     is_studying = False
 
-            # --- CONTROL LAW ---
+            # 6. CONTROL LAW
             p_move = predicted_error * K_P
-            v_move = smooth_vel * K_V
+            v_move = est_vel * K_V
+            
+            # Save state for next frame
+            last_error = raw_error
+            last_sent_us = current_pan_us
             
             current_pan_us -= int(p_move + v_move)
-            current_pan_us = clamp(current_pan_us, US_MIN, US_MAX)
+            current_pan_us = clamp(current_pan_us, 1000, 3000)
 
             if (time.time() - last_send_time) > 0.05:
                 uart.send_preloads_us(current_pan_us)
                 last_send_time = time.time()
 
-            # Target Visuals
+            # Visuals
             cv2.circle(frame, (target_x, h // 2), 10, (0, 255, 0), 2)
-            if abs(smooth_vel) > VEL_DEADBAND:
-                # Ghost dot showing where the computer is aiming
-                cv2.circle(frame, (int(center_x + predicted_error), h // 2 + 40), 5, (255, 0, 255), -1)
-        else:
-            smooth_vel = 0
-            last_error = 0
+            pred_draw_x = int(center_x + predicted_error)
+            cv2.circle(frame, (pred_draw_x, h // 2 + 40), 5, (255, 0, 255), -1)
         
-        # --- UI ---
-        status = "STUDYING" if is_studying else "STABLE-PREDICT"
-        cv2.putText(frame, f"STATUS: {status}", (20, 40), 1, 1.5, (0, 255, 255), 2)
-        cv2.putText(frame, f"SMOOTH_V: {smooth_vel:.1f}", (20, 80), 1, 1.0, (200, 200, 200), 1)
-        
-        cv2.imshow("Advanced Lead-Predictor", frame)
+        # UI Overlay
+        if is_studying:
+            cv2.putText(frame, "RECORDING RMS...", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
+        cv2.imshow("Ego-Compensated Predictor", frame)
+        
         key = cv2.waitKey(1) & 0xFF
-        if key == 27: break
+        if key == 27: # ESC to quit
+            break
         elif key == ord('s') and not is_studying:
-            error_squared_sum = sample_count = 0
+            print("Starting 10s study...")
+            error_squared_sum = 0
+            sample_count = 0
             study_start_time = time.time()
             is_studying = True
 
     cap.release()
-    uart.close()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":

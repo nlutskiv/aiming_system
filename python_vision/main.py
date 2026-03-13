@@ -17,7 +17,13 @@ def main():
     K_P = 0.15            
     current_pan_us = US_CENTER
     zero_reference_us = US_CENTER 
-    last_send_time = 0
+
+    # INITIALIZE THESE HERE TO PREVENT UNBOUNDLOCALERROR
+    last_send_time = 0.0  
+    last_sent_us = US_CENTER
+    last_error = 0
+    est_pos = 0.0
+    est_vel = 0.0
 
     # --- RMS STUDY VARIABLES ---
     is_studying = False
@@ -36,9 +42,37 @@ def main():
     print("CONTROLS: 's' to start 10s RMS Study | 'r' to reset 0-deg | ESC to quit")
 
     while True:
+        while uart.ser.in_waiting >= 3:
+            header = ord(uart.ser.read(1))
+            if header == 0xAA:
+                hi = ord(uart.ser.read(1))
+                lo = ord(uart.ser.read(1))
+                
+                # 1. Combine to get the raw preload
+                preload = (hi << 8) | lo
+                
+                # 2. Convert preload back to elapsed ticks
+                ticks = 65535 - preload
+                
+                # 3. Convert ticks to microseconds (1 tick = 0.5us for 1:8 prescaler)
+                # Adjust 0.5 if your clock/prescaler math is different!
+                actual_us = int(ticks * 0.5) 
+                
+                current_pan_us = clamp(actual_us, US_MIN, US_MAX)
+                
+                # 4. Sync the rest of the tracking state
+                last_sent_us = current_pan_us
+                last_error = 0
+                est_pos = 0.0
+                est_vel = 0.0
+                
+                print(f"BUMPLESS TRANSFER: {ticks} ticks -> {current_pan_us}us")
+                break
+            else:
+                # If it wasn't 0xAA, it's garbage. The loop continues to next byte.
+                pass
         ret, frame = cap.read()
         if not ret: break
-
         h, w = frame.shape[:2]
         center_x = w // 2
         target_x, mask = find_red_target_x(frame)
