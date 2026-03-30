@@ -3,39 +3,72 @@
 global  ADC_To_Preloads_12bit
 extrn   pre_hi_h, pre_hi_l, pre_lo_h, pre_lo_l   ; from PWM module
 
-; tick = 0.5us (Fosc=64MHz, Fosc/4=16MHz, prescale=8 => 2MHz tick)
-; 1.0ms => 2000 ticks
-; 3.0ms => 6000 ticks
-; 20ms  => 40000 ticks
+; -------------------------------------------------------------------------
+; ADC_To_Preloads_12bit
+;
+; Purpose:
+;   Converts the 12-bit ADC reading from the potentiometer into the Timer1
+;   preload values used by the PWM interrupt routine for servo control.
+;
+; Behaviour:
+;   - ADC input range:      0 to 4095
+;   - Servo high pulse:     1.0 ms to 3.0 ms
+;   - Total PWM period:     20 ms
+;
+; Method:
+;   1. Read the 12-bit ADC result from ADRESH:ADRESL
+;   2. Scale it into the range 0 to 4000 timer ticks
+;   3. Add 2000 ticks so the final high pulse is 2000 to 6000 ticks
+;      which corresponds to 1.0 ms to 3.0 ms
+;   4. Convert the pulse widths into Timer1 preload values
+;   5. Update the shared PWM preload registers safely with interrupts disabled
+;
+; Timer1 timing:
+;   Fosc = 64 MHz
+;   Instruction clock = Fosc/4 = 16 MHz
+;   Timer1 prescaler = 1:8
+;   Timer1 tick = 0.5 us
+;
+; Therefore:
+;   1.0 ms  = 2000 ticks
+;   3.0 ms  = 6000 ticks
+;   20.0 ms = 40000 ticks
+;
+; The PWM module expects preload values rather than raw tick counts, so:
+;   preload = 65536 - required_ticks
+;
+; -------------------------------------------------------------------------
 
 psect   udata_acs
-a0:     ds 1        ; ADRESL
-a1:     ds 1        ; ADRESH & 0x0F  (top 4 bits of 12-bit result)
+a0:     ds 1        ; Lower 8 bits of ADC result (ADRESL)
+a1:     ds 1        ; Upper 4 bits of ADC result (ADRESH & 0x0F)
+
 p0:     ds 1        ; 24-bit product p2:p1:p0 = adc12 * 4000
 p1:     ds 1
 p2:     ds 1
-sh0:    ds 1        ; shifted product (>>12)
+
+sh0:    ds 1        ; Temporary copy of product for right-shifting by 12 bits
 sh1:    ds 1
 sh2:    ds 1
-cnt:    ds 1
-sc_l:   ds 1        ; scaled 0..4000 (16-bit)
+
+cnt:    ds 1        ; Shift counter
+
+sc_l:   ds 1        ; 16-bit scaled value in range 0 to 4000
 sc_h:   ds 1
-ht_l:   ds 1        ; high_ticks 2000..6000 (16-bit)
+
+ht_l:   ds 1        ; 16-bit high pulse width in ticks: 2000 to 6000
 ht_h:   ds 1
 
 psect   adc_map_code, class=CODE
 
-; ------------------------------------------------------------
-; ADC_To_Preloads_12bit
-; Uses 12-bit ADC (0..0x0FFF). Output:
-;   HIGH pulse: 1.000ms..3.000ms over full ADC range
-; ------------------------------------------------------------
+
 ADC_To_Preloads_12bit:
 
-        ; a0 = ADRESL (D0..D7)
-        movff   ADRESL, a0
 
-        ; a1 = ADRESH & 0x0F (D8..D11)
+        ; Read the 12-bit ADC result.
+        ; ADRESL contains bits D0-D7
+        ; ADRESH contains bits D8-D11 in its lower nibble
+        movff   ADRESL, a0
         movf    ADRESH, W, A
         andlw   0x0F
         movwf   a1, A
@@ -105,7 +138,6 @@ not_max:
         addwfc  sc_h, W, A
         movwf   ht_h, A
 
-        ; atomic update
         bcf     GIE
 
         ; pre_hi = 0x10000 - high_ticks = (~high)+1

@@ -44,6 +44,7 @@ def main():
     while True:
         while uart.ser.in_waiting >= 3:
             header = ord(uart.ser.read(1))
+            #handshake -> synch the position
             if header == 0xAA:
                 hi = ord(uart.ser.read(1))
                 lo = ord(uart.ser.read(1))
