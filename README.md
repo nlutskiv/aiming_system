@@ -57,7 +57,6 @@ aiming_system/
 │   ├── main_dynamic_kp.py # implemented control loop with tuned/dynamic K_p
 │   ├── predictor_main.py  # experimental, predictive control loop
 │   └── latency_measure.py
-├── analysis/
 ├── latency_data.csv
 ├── Makefile
 └── README.md
