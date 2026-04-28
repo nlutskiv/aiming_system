@@ -53,9 +53,9 @@ aiming_system/
 ├── python_vision/         # PC-side vision + control scripts
 │   ├── UART.py
 │   ├── tracking.py
-│   ├── main.py
-│   ├── main_dynamic_kp.py
-│   ├── predictor_main.py
+│   ├── main.py            # Baseline control loop      
+│   ├── main_dynamic_kp.py # implemented control loop with tuned/dynamic K_p
+│   ├── predictor_main.py  # experimental, predictive control loop
 │   └── latency_measure.py
 ├── analysis/
 ├── latency_data.csv
