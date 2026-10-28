@@ -22,3 +22,9 @@ nbproject/Makefile-*
 disassembly/
 *.map
 .DS_Store
+
+# MPLAB trace logs and Python cache
+defmplabxtrace.log*
+mcc-manifest-autosave.yml
+__pycache__/
+*.pyc
